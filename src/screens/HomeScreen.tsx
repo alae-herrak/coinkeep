@@ -16,7 +16,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { CategoryIcon } from '../components/ui/CategoryIcon';
 import { TransactionRow } from '../components/transactions/TransactionRow';
-import { SafeToSpendCard } from '../components/home/SafeToSpendCard';
+import { BalanceCarousel } from '../components/home/BalanceCarousel';
 import { GoalMiniRow } from '../components/goals/GoalBits';
 import { BackupReminder } from '../components/home/BackupReminder';
 
@@ -62,7 +62,7 @@ export function HomeScreen() {
       <PageHeader title="Home" subtitle={formatMonth(today)} />
 
       <div className="flex flex-col gap-6">
-        <SafeToSpendCard data={safe} />
+        <BalanceCarousel safe={safe} accounts={accounts.active} balances={accounts.balances} />
 
         <BackupReminder />
 

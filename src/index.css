@@ -113,6 +113,12 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .pt-safe {
     padding-top: env(safe-area-inset-top);
   }
@@ -126,6 +132,10 @@
   /* Space so content can scroll clear of the fixed tab bar. */
   .pb-tabbar {
     padding-bottom: calc(var(--spacing-tabbar) + env(safe-area-inset-bottom) + 1.5rem);
+  }
+  /* Same, plus the floating + button (1rem gap + 3.5rem button + 0.5rem). */
+  .pb-tabbar-fab {
+    padding-bottom: calc(var(--spacing-tabbar) + env(safe-area-inset-bottom) + 5rem);
   }
 }
 

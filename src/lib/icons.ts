@@ -12,6 +12,7 @@ import {
   Bus,
   Car,
   Circle,
+  CircleDollarSign,
   Clapperboard,
   Coffee,
   Coins,
@@ -60,6 +61,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import type { AccountType } from '../db/types';
 
 export const ICONS = {
   ShoppingCart,
@@ -150,3 +152,11 @@ export const PICKER_COLORS = [
   '#78716c',
   '#64748b',
 ];
+
+/** Icon for each account type (Accounts screen, Home balance cards). */
+export const ACCOUNT_ICONS: Record<AccountType, LucideIcon> = {
+  cash: Banknote,
+  bank: Landmark,
+  card: CreditCard,
+  other: CircleDollarSign,
+};

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowUpDown, Banknote, CircleDollarSign, CreditCard, Landmark, Plus, type LucideIcon } from 'lucide-react';
+import { ArrowUpDown, Plus } from 'lucide-react';
+import { ACCOUNT_ICONS } from '../../lib/icons';
 import type { Account, AccountType } from '../../db/types';
 import {
   accountUsageCount,
@@ -23,12 +24,6 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { CardList, ListRow } from '../../components/ui/ListRow';
 import { Money } from '../../components/ui/Money';
 
-export const ACCOUNT_ICONS: Record<AccountType, LucideIcon> = {
-  cash: Banknote,
-  bank: Landmark,
-  card: CreditCard,
-  other: CircleDollarSign,
-};
 
 export function AccountIcon({ type }: { type: AccountType }) {
   const Icon = ACCOUNT_ICONS[type];
