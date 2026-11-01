@@ -15,34 +15,134 @@ interface BalanceCarouselProps {
   balances: Map<number, number>;
 }
 
+/** Fraction of the card width a drag must cover to move to the next card. */
+const DISTANCE_THRESHOLD = 0.2;
+/** A flick faster than this (px per ms) moves to the next card even if it was short. */
+const VELOCITY_THRESHOLD = 0.4;
+/** Movement before a touch counts as a horizontal drag (taps stay taps). */
+const SLOP = 8;
+
+interface Drag {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startIndex: number;
+  startLeft: number;
+  lastX: number;
+  lastT: number;
+  velocity: number;
+  horizontal: boolean;
+}
+
 /**
  * Home's top card: "Safe to spend" first, then one card per account. Swipe
- * sideways (native scroll-snap) or tap the dots below.
+ * sideways or tap the dots below.
+ *
+ * Swiping is handled here rather than by native scroll-snap: browsers let a fast
+ * fling fly past several cards, while this moves exactly one card per swipe.
+ * Vertical page scrolling stays native (touch-action: pan-y).
  */
 export function BalanceCarousel({ safe, accounts, balances }: BalanceCarouselProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(0);
+  const currentRef = useRef(0);
+  const drag = useRef<Drag | null>(null);
+  // Set after a horizontal drag, so the click that ends it doesn't open an account.
+  const dragged = useRef(false);
   const count = accounts.length + 1;
 
-  // Keep the dots in sync with wherever a swipe settles.
+  // Keep the dots in sync with the scroll position (swipes, dots, keyboard focus).
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     const onScroll = () => {
-      const distances = slideOffsets(el).map((x) => Math.abs(x - el.scrollLeft));
-      setCurrent(distances.indexOf(Math.min(...distances)));
+      const index = nearestIndex(el);
+      currentRef.current = index;
+      setCurrent(index);
+    };
+    // Stay on the same card when the width changes (rotation, window resize).
+    const resize = new ResizeObserver(() => {
+      el.scrollLeft = slideOffsets(el)[currentRef.current] ?? 0;
+    });
+    // Once a swipe is ours, keep the browser from also running its own fling:
+    // it would swallow the next tap ("tap to stop the fling") for about a second.
+    const onTouchMove = (e: TouchEvent) => {
+      if (drag.current?.horizontal && e.cancelable) e.preventDefault();
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    resize.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('touchmove', onTouchMove);
+      resize.disconnect();
+    };
+  }, [count]);
 
   const goTo = (i: number) => {
     const el = scroller.current;
     if (!el) return;
-    const left = slideOffsets(el)[i];
-    if (left === undefined) return;
+    const index = Math.max(0, Math.min(count - 1, i));
+    const left = slideOffsets(el)[index] ?? 0;
     const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     el.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = scroller.current;
+    if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    dragged.current = false;
+    drag.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startIndex: nearestIndex(el),
+      startLeft: el.scrollLeft,
+      lastX: e.clientX,
+      lastT: e.timeStamp,
+      velocity: 0,
+      horizontal: false,
+    };
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    const el = scroller.current;
+    if (!d || !el || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.startX;
+    if (!d.horizontal) {
+      if (Math.abs(dx) < SLOP) return;
+      // Mostly vertical: that's the page scrolling, not a swipe.
+      if (Math.abs(e.clientY - d.startY) > Math.abs(dx)) {
+        drag.current = null;
+        return;
+      }
+      d.horizontal = true;
+      dragged.current = true;
+      el.setPointerCapture(e.pointerId);
+    }
+    const dt = e.timeStamp - d.lastT;
+    if (dt > 0) d.velocity = (e.clientX - d.lastX) / dt;
+    d.lastX = e.clientX;
+    d.lastT = e.timeStamp;
+    // The card follows the finger.
+    el.scrollLeft = d.startLeft - dx;
+  };
+
+  const onPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    const el = scroller.current;
+    drag.current = null;
+    if (!d || !el || !d.horizontal) return;
+    const dx = e.clientX - d.startX;
+    // A finger that stopped before lifting isn't a flick.
+    const velocity = e.timeStamp - d.lastT > 100 ? 0 : d.velocity;
+    let target = d.startIndex;
+    if (e.type !== 'pointercancel') {
+      if (dx < -el.clientWidth * DISTANCE_THRESHOLD || velocity < -VELOCITY_THRESHOLD) target += 1;
+      else if (dx > el.clientWidth * DISTANCE_THRESHOLD || velocity > VELOCITY_THRESHOLD) target -= 1;
+    }
+    goTo(target);
   };
 
   if (accounts.length === 0) return <SafeToSpendCard data={safe} />;
@@ -51,13 +151,23 @@ export function BalanceCarousel({ safe, accounts, balances }: BalanceCarouselPro
     <section aria-roledescription="carousel" aria-label="Balances">
       <div
         ref={scroller}
-        className="no-scrollbar relative -mx-4 -my-2 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto overscroll-x-contain px-4 py-2 scroll-px-4"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onClickCapture={(e) => {
+          if (!dragged.current) return;
+          dragged.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        className="no-scrollbar relative -mx-4 -my-2 flex touch-pan-y items-start gap-3 overflow-x-hidden px-4 py-2"
       >
-        <div role="group" aria-roledescription="slide" aria-label={`1 of ${count}: Safe to spend`} className="w-full shrink-0 snap-start">
+        <div role="group" aria-roledescription="slide" aria-label={`1 of ${count}: Safe to spend`} className="w-full shrink-0">
           <SafeToSpendCard data={safe} />
         </div>
         {accounts.map((a, i) => (
-          <div key={a.id} role="group" aria-roledescription="slide" aria-label={`${i + 2} of ${count}: ${a.name}`} className="w-full shrink-0 snap-start">
+          <div key={a.id} role="group" aria-roledescription="slide" aria-label={`${i + 2} of ${count}: ${a.name}`} className="w-full shrink-0">
             <AccountCard account={a} balance={balances.get(a.id) ?? 0} />
           </div>
         ))}
@@ -81,7 +191,13 @@ export function BalanceCarousel({ safe, accounts, balances }: BalanceCarouselPro
   );
 }
 
-/** scrollLeft at which each slide is snapped into place. */
+/** Index of the card closest to the current scroll position. */
+function nearestIndex(el: HTMLElement): number {
+  const distances = slideOffsets(el).map((x) => Math.abs(x - el.scrollLeft));
+  return distances.indexOf(Math.min(...distances));
+}
+
+/** scrollLeft at which each card sits in place. */
 function slideOffsets(el: HTMLElement): number[] {
   const slides = [...el.children] as HTMLElement[];
   const first = slides[0]?.offsetLeft ?? 0;
