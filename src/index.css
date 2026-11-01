@@ -1,0 +1,267 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by a .dark class on <html> (see src/lib/theme.ts). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Components use semantic names (bg-surface, text-muted,
+ * text-income…) so both themes come from one set of variables.
+ * Single accent color (indigo) — also used for savings.
+ */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #e3e6ec;
+  --text: #14161b;
+  --muted: #5d6472;
+  --accent: #4f46e5;
+  --accent-soft: #e8e7fd;
+  --accent-fg: #ffffff;
+  --income: #15803d;
+  --income-soft: #dcfce7;
+  --expense: #be123c;
+  --expense-soft: #ffe4e6;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+}
+
+.dark {
+  --bg: #0e1015;
+  --surface: #171a21;
+  --surface-2: #20242d;
+  --border: #2a2f3a;
+  --text: #eef0f4;
+  --muted: #9aa1ae;
+  --accent: #8b87f7;
+  --accent-soft: #26244a;
+  --accent-fg: #0e1015;
+  --income: #4ade80;
+  --income-soft: #14301f;
+  --expense: #fb7185;
+  --expense-soft: #3a1820;
+  --warn: #fbbf24;
+  --warn-soft: #3a2c10;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-income: var(--income);
+  --color-income-soft: var(--income-soft);
+  --color-expense: var(--expense);
+  --color-expense-soft: var(--expense-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+}
+
+@theme {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --radius-card: 1.25rem;
+  /* Height of the bottom tab bar, excluding the safe-area inset. */
+  --spacing-tabbar: 4rem;
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+  html {
+    /* No double-tap zoom delay, no grey flash on tap. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    background: var(--bg);
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-bg font-sans text-text antialiased;
+    min-height: 100dvh;
+    /* Prevent accidental pull-to-refresh and scroll chaining. */
+    overscroll-behavior-y: none;
+  }
+
+  /* 16px+ prevents mobile browsers from zooming into focused fields. */
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1rem);
+  }
+
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .px-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  /* Space so content can scroll clear of the fixed tab bar. */
+  .pb-tabbar {
+    padding-bottom: calc(var(--spacing-tabbar) + env(safe-area-inset-bottom) + 1.5rem);
+  }
+}
+
+/*
+ * Bottom sheets and dialogs are native <dialog> elements (focus trap, Esc,
+ * top layer for free). Entry/exit animate with @starting-style.
+ */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+dialog.sheet,
+dialog.dialog-center {
+  padding: 0;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  max-width: 36rem;
+  width: 100%;
+  overflow: hidden;
+  transition:
+    transform 0.32s var(--ease-sheet),
+    opacity 0.2s ease,
+    overlay 0.32s allow-discrete,
+    display 0.32s allow-discrete;
+}
+
+dialog.sheet {
+  margin: auto auto 0;
+  max-height: min(94dvh, 100dvh - env(safe-area-inset-top) - 0.5rem);
+  border-radius: 1.5rem 1.5rem 0 0;
+  transform: translateY(100%);
+}
+dialog.sheet[open] {
+  transform: none;
+}
+@starting-style {
+  dialog.sheet[open] {
+    transform: translateY(100%);
+  }
+}
+
+dialog.dialog-center {
+  margin: auto;
+  width: calc(100% - 2rem);
+  max-width: 24rem;
+  border-radius: 1.25rem;
+  opacity: 0;
+  transform: scale(0.96);
+}
+dialog.dialog-center[open] {
+  opacity: 1;
+  transform: none;
+}
+@starting-style {
+  dialog.dialog-center[open] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+dialog.sheet::backdrop,
+dialog.dialog-center::backdrop {
+  background: rgb(0 0 0 / 0);
+  transition:
+    background 0.32s ease,
+    overlay 0.32s allow-discrete,
+    display 0.32s allow-discrete;
+}
+dialog.sheet[open]::backdrop,
+dialog.dialog-center[open]::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+@starting-style {
+  dialog.sheet[open]::backdrop,
+  dialog.dialog-center[open]::backdrop {
+    background: rgb(0 0 0 / 0);
+  }
+}
+
+/* Lock screen / privacy cover: a full-viewport modal dialog above everything. */
+dialog.lock-dialog {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+dialog.lock-dialog::backdrop {
+  background: var(--bg);
+}
+
+/*
+ * Category/goal badges: a soft tint of the color with the icon on top. The
+ * icon is kept in a readable lightness band per theme (pale yellows get darker
+ * on white, deep greens get lighter on dark) without changing its hue.
+ */
+.cat-icon {
+  background-color: color-mix(in srgb, var(--cat) 13%, transparent);
+  color: var(--cat);
+  color: oklch(from var(--cat) min(l, 0.62) c h);
+}
+.dark .cat-icon {
+  background-color: color-mix(in srgb, var(--cat) 20%, transparent);
+  color: oklch(from var(--cat) max(l, 0.74) c h);
+}
+
+/* Screens fade in on navigation (instant with reduced motion, see below). */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.page-in {
+  animation: page-in 0.22s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
