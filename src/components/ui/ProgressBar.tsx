@@ -17,9 +17,11 @@ interface ProgressBarProps {
   tone?: Tone;
   color?: string;
   className?: string;
+  /** 0..1: draws a thin "today" tick at this point (budget pace). */
+  marker?: number;
 }
 
-export function ProgressBar({ value, label, valueText, tone = 'accent', color, className = '' }: ProgressBarProps) {
+export function ProgressBar({ value, label, valueText, tone = 'accent', color, className = '', marker }: ProgressBarProps) {
   const pct = Math.round(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1)) * 100);
   return (
     <div
@@ -29,12 +31,20 @@ export function ProgressBar({ value, label, valueText, tone = 'accent', color, c
       aria-valuemax={100}
       aria-valuenow={pct}
       aria-valuetext={valueText}
-      className={`h-2 overflow-hidden rounded-full bg-surface-2 ${className}`}
+      className={`relative h-2 overflow-hidden rounded-full bg-surface-2 ${className}`}
     >
       <div
         className={`h-full rounded-full transition-[width] duration-700 ease-out ${tone === 'custom' ? '' : TONES[tone]}`}
         style={{ width: `${pct}%`, backgroundColor: tone === 'custom' ? color : undefined }}
       />
+      {marker !== undefined && marker > 0 && marker < 1 && (
+        // Ring in the track colour keeps the tick visible over the filled part too.
+        <span
+          aria-hidden
+          className="absolute inset-y-0 w-[3px] -translate-x-1/2 rounded-full bg-text/70 ring-1 ring-surface"
+          style={{ left: `${marker * 100}%` }}
+        />
+      )}
     </div>
   );
 }

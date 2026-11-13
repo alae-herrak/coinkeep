@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { BellRing, ChevronRight, Gauge, HandCoins, PiggyBank, ReceiptText } from 'lucide-react';
 import { db } from '../db/db';
 import { compareNewestFirst } from '../domain/transactions';
+import { monthPace, perDayLeft } from '../domain/budgets';
 import { billsDueSoon, describeDue } from '../domain/bills';
 import { useAccounts, useCategories } from '../hooks/data';
 import { categoryBudgets, useBills, useGoals, useMonthSummary, useSafeToSpend } from '../hooks/money';
@@ -55,6 +56,7 @@ export function HomeScreen() {
   const lastFive = [...recent].sort(compareNewestFirst).slice(0, 5);
   const dueSoon = billsDueSoon(bills, today, 7);
   const budgets = categoryBudgets(categories.all, month.spentByCategory).slice(0, 3);
+  const pace = monthPace(today);
   const topGoals = [...goals.active].sort((a, b) => b.held - a.held).slice(0, 3);
 
   return (
@@ -128,13 +130,14 @@ export function HomeScreen() {
                       <span className={`tabular shrink-0 ${progress.status === 'over' ? 'font-semibold text-expense' : 'text-muted'}`}>
                         {progress.status === 'over'
                           ? `${formatMAD(-progress.remaining, { decimals: false })} over`
-                          : `${formatMAD(progress.remaining, { decimals: false })} left`}
+                          : `${formatMAD(progress.remaining, { decimals: false })} left · ${formatMAD(perDayLeft(progress, pace), { decimals: false })}/day`}
                       </span>
                     </div>
                     <ProgressBar
                       className="mt-1.5"
                       value={progress.ratio}
                       tone={progress.status}
+                      marker={pace.elapsed}
                       label={`${category.name} budget`}
                       valueText={`${formatMAD(progress.spent)} of ${formatMAD(progress.budget)}${progress.status === 'over' ? ', over budget' : ''}`}
                     />

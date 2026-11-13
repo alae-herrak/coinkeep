@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { AlertTriangle, CheckCircle2, Gauge, OctagonAlert, Plus } from 'lucide-react';
 import { db } from '../db/db';
 import type { Category } from '../db/types';
-import { budgetProgress, type BudgetStatus } from '../domain/budgets';
+import { budgetProgress, isAheadOfPace, monthPace, perDayLeft, type BudgetProgress, type BudgetStatus } from '../domain/budgets';
 import { isValidMonth, monthBounds, spendingByCategory, type MonthKey } from '../domain/insights';
 import { setCategoryBudget } from '../data/categories';
 import { errorMessage } from '../data/errors';
@@ -42,6 +42,14 @@ export function BudgetsScreen() {
   const totalBudget = withBudget.reduce((s, c) => s + (c.monthlyBudget ?? 0), 0);
   const totalSpent = withBudget.reduce((s, c) => s + (spent.get(c.id) ?? 0), 0);
   const overall = budgetProgress(totalSpent, totalBudget);
+  // Pace only means something for the month in progress.
+  const pace = month === currentMonth ? monthPace(todayISO()) : null;
+  const leftText = (p: BudgetProgress) =>
+    p.remaining < 0
+      ? `${formatMAD(-p.remaining, { decimals: false })} over`
+      : pace
+        ? `${formatMAD(p.remaining, { decimals: false })} left · ${formatMAD(perDayLeft(p, pace), { decimals: false })}/day`
+        : `${formatMAD(p.remaining, { decimals: false })} left`;
   const setMonth = (m: MonthKey) => setParams(m === currentMonth ? {} : { month: m }, { replace: true });
 
   return (
@@ -59,15 +67,18 @@ export function BudgetsScreen() {
         <section aria-label="All budgets" className="mt-4 rounded-card bg-surface p-5 shadow-sm">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-sm text-muted">Spent of budgeted</p>
-            <StatusTag status={overall.status} />
+            <StatusTag status={overall.status} ahead={pace !== null && isAheadOfPace(overall, pace)} />
           </div>
           <p className="mt-1 text-2xl font-semibold tracking-tight">
             {formatMAD(totalSpent, { decimals: false })} <span className="text-base font-medium text-muted">of {formatMAD(totalBudget, { decimals: false })}</span>
           </p>
-          <ProgressBar className="mt-3" value={overall.ratio} tone={overall.status} label="All budgets" valueText={`${formatMAD(totalSpent)} of ${formatMAD(totalBudget)}`} />
+          <ProgressBar className="mt-3" value={overall.ratio} tone={overall.status} marker={pace?.elapsed} label="All budgets" valueText={`${formatMAD(totalSpent)} of ${formatMAD(totalBudget)}`} />
           <p className="mt-2 text-sm text-muted">
-            {overall.remaining >= 0 ? `${formatMAD(overall.remaining, { decimals: false })} left this month` : `${formatMAD(-overall.remaining, { decimals: false })} over in total`}
+            {overall.remaining >= 0
+              ? `${formatMAD(overall.remaining, { decimals: false })} left this month${pace ? ` · ${formatMAD(perDayLeft(overall, pace), { decimals: false })}/day for ${pace.daysLeft} ${pace.daysLeft === 1 ? 'day' : 'days'}` : ''}`
+              : `${formatMAD(-overall.remaining, { decimals: false })} over in total`}
           </p>
+          {pace && <p className="mt-1 text-xs text-muted">The tick on each bar marks today.</p>}
         </section>
       )}
 
@@ -78,7 +89,7 @@ export function BudgetsScreen() {
             .sort((a, b) => b.p.ratio - a.p.ratio)
             .map(({ c, p }) => (
               <li key={c.id} className="border-b border-border last:border-b-0">
-                <button type="button" onClick={() => setEditing(c)} className="block w-full px-4 py-3.5 text-left transition hover:bg-surface-2" aria-label={`${c.name}: ${formatMAD(p.spent)} of ${formatMAD(p.budget)}, ${STATUS_TEXT[p.status]}. Edit budget`}>
+                <button type="button" onClick={() => setEditing(c)} className="block w-full px-4 py-3.5 text-left transition hover:bg-surface-2" aria-label={`${c.name}: ${formatMAD(p.spent)} of ${formatMAD(p.budget)}, ${STATUS_TEXT[p.status]}, ${leftText(p)}. Edit budget`}>
                   <span aria-hidden className="flex items-center gap-3">
                     <CategoryIcon icon={c.icon} color={c.color} size={36} />
                     <span className="min-w-0 flex-1">
@@ -88,12 +99,10 @@ export function BudgetsScreen() {
                           {formatMAD(p.spent, { decimals: false })} / {formatMAD(p.budget, { decimals: false })}
                         </span>
                       </span>
-                      <ProgressBar className="mt-2" value={p.ratio} tone={p.status} label={`${c.name} budget`} />
+                      <ProgressBar className="mt-2" value={p.ratio} tone={p.status} marker={pace?.elapsed} label={`${c.name} budget`} />
                       <span className="mt-1.5 flex items-center justify-between gap-2 text-xs">
-                        <StatusTag status={p.status} />
-                        <span className="tabular text-muted">
-                          {p.remaining >= 0 ? `${formatMAD(p.remaining, { decimals: false })} left` : `${formatMAD(-p.remaining, { decimals: false })} over`}
-                        </span>
+                        <StatusTag status={p.status} ahead={pace !== null && isAheadOfPace(p, pace)} />
+                        <span className="tabular text-muted">{leftText(p)}</span>
                       </span>
                     </span>
                   </span>
@@ -138,12 +147,14 @@ export function BudgetsScreen() {
   );
 }
 
-function StatusTag({ status }: { status: BudgetStatus }) {
+/** "On track" only while spending stays at or behind today's tick. */
+function StatusTag({ status, ahead = false }: { status: BudgetStatus; ahead?: boolean }) {
   const Icon = STATUS_ICON[status];
+  const pacing = status === 'ok' && ahead;
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold ${STATUS_CLASS[status]}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold ${pacing ? 'text-warn' : STATUS_CLASS[status]}`}>
       <Icon size={14} aria-hidden />
-      {STATUS_TEXT[status]}
+      {pacing ? 'Ahead of pace' : STATUS_TEXT[status]}
     </span>
   );
 }

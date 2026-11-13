@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowRight, CalendarDays, StickyNote, Trash2, Wallet, X } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Banknote, CalendarDays, Split, StickyNote, Trash2, Wallet, X } from 'lucide-react';
 import { db } from '../../db/db';
 import type { Account, Category, Transaction, TransactionType } from '../../db/types';
-import { deleteTransaction, restoreTransaction, saveTransaction } from '../../data/transactions';
+import { deleteTransaction, restoreTransaction, saveTransaction, saveTransactions, type TransactionInput } from '../../data/transactions';
 import { errorMessage } from '../../data/errors';
-import { useAccounts, useCategories, useCategoryUsage, useSetting, type AccountsData, type CategoriesData } from '../../hooks/data';
+import { useAccounts, useCategories, useCategoryUsage, useRecentTransactions, useSetting, type AccountsData, type CategoriesData } from '../../hooks/data';
+import {
+  SHORTCUT_MIN_USES,
+  foldNote,
+  matchNotes,
+  noteShortcuts,
+  transferLabel,
+  transferShortcuts,
+  type NoteShortcut,
+  type Shortcut,
+  type TransferShortcut,
+} from '../../domain/shortcuts';
 import { applyKey, expressionFromCentimes, formatExpression, hasOperator, type KeypadKey } from '../../lib/keypad';
 import { evaluateExpression, formatMAD } from '../../lib/money';
 import { todayISO } from '../../lib/dates';
@@ -90,9 +101,48 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
   const [date, setDate] = useState(editing?.date ?? todayISO());
   const [note, setNote] = useState(editing?.note ?? '');
   const [saving, setSaving] = useState(false);
+  // Split payment: parts already entered, saved together with the current one.
+  const [parts, setParts] = useState<TransactionInput[]>([]);
+  const [noteFocused, setNoteFocused] = useState(false);
+  const history = useRecentTransactions();
 
   const amount = evaluateExpression(expr);
   const isTransfer = type === 'transfer';
+
+  // Shortcuts learned from history, limited to categories/accounts still in use.
+  const learned = useMemo(() => {
+    if (!history) return { notes: { expense: [], income: [] } as Record<'expense' | 'income', NoteShortcut[]>, transfers: [] as TransferShortcut[] };
+    const usableNote = (s: NoteShortcut) => {
+      const c = categories.byId.get(s.categoryId);
+      return !!c && !c.archived && c.kind === s.type;
+    };
+    const activeAccount = (id: number) => accounts.byId.get(id)?.archived === false;
+    return {
+      notes: {
+        expense: noteShortcuts(history, 'expense').filter(usableNote),
+        income: noteShortcuts(history, 'income').filter(usableNote),
+      },
+      transfers: transferShortcuts(history).filter((s) => activeAccount(s.fromId) && activeAccount(s.toId)),
+    };
+  }, [history, categories, accounts]);
+
+  // While typing a note: matching notes (autocomplete). Otherwise: the most-used shortcuts.
+  const typedQuery = noteFocused && !isTransfer ? note : '';
+  const shortcuts: Shortcut[] = useMemo(() => {
+    if (editing) return [];
+    if (typedQuery.trim()) return matchNotes(learned.notes[type as 'expense' | 'income'], typedQuery).slice(0, 8);
+    const frequent = (list: Shortcut[]) => list.filter((s) => s.count >= SHORTCUT_MIN_USES);
+    const pool: Shortcut[] =
+      type === 'expense'
+        ? [...frequent(learned.notes.expense), ...frequent(learned.transfers)]
+        : type === 'income'
+          ? frequent(learned.notes.income)
+          : // The most-used pair is already preselected; chips only help with a choice.
+            learned.transfers.length > 1
+            ? learned.transfers
+            : [];
+    return [...pool].sort((a, b) => b.count - a.count || b.lastUsed - a.lastUsed).slice(0, 8);
+  }, [editing, typedQuery, type, learned]);
 
   // Category chips: active ones of this kind, most-used first; keep an archived
   // category visible when editing a transaction that already uses it.
@@ -115,9 +165,41 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
     setType(next);
     const current = categoryId !== null ? categories.byId.get(categoryId) : undefined;
     if (!current || current.kind !== next) setCategoryId(null);
-    if (next === 'transfer' && (toAccountId === null || toAccountId === accountId)) {
-      setToAccountId(accounts.active.find((a) => a.id !== accountId)?.id ?? null);
+    if (next === 'transfer') {
+      // Start from the pair used most (e.g. bank → wallet), not whatever the expense account was.
+      const usual = editing ? undefined : learned.transfers[0];
+      if (usual) {
+        setAccountId(usual.fromId);
+        setToAccountId(usual.toId);
+      } else if (toAccountId === null || toAccountId === accountId) {
+        setToAccountId(accounts.active.find((a) => a.id !== accountId)?.id ?? null);
+      }
     }
+  };
+
+  const isSelected = (s: Shortcut) =>
+    s.kind === 'note'
+      ? type === s.type && categoryId === s.categoryId && foldNote(note) === foldNote(s.note)
+      : isTransfer && accountId === s.fromId && toAccountId === s.toId;
+
+  const applyShortcut = (s: Shortcut) => {
+    if (s.kind === 'transfer') {
+      // A note picked from an expense shortcut ("Breakfast") doesn't belong on the transfer.
+      if (!isTransfer && learned.notes[type as 'expense' | 'income'].some((n) => foldNote(n.note) === foldNote(note))) setNote('');
+      setType('transfer');
+      setCategoryId(null);
+      setAccountId(s.fromId);
+      setToAccountId(s.toId);
+    } else if (isSelected(s)) {
+      // Tapping the chosen shortcut again undoes it.
+      setNote('');
+      setCategoryId(null);
+    } else {
+      setNote(s.note);
+      setCategoryId(s.categoryId);
+    }
+    // Picked from autocomplete: put the keyboard away.
+    (document.activeElement as HTMLElement | null)?.blur();
   };
 
   const problem = (() => {
@@ -132,31 +214,62 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
     if (categoryId === null) return 'Pick a category';
     return null;
   })();
-  const canSave = amount !== null && amount > 0 && problem === null && !saving;
+  const currentValid = amount !== null && amount > 0 && problem === null;
+  // With split parts waiting, an empty amount just means "save the parts".
+  const currentEmpty = expr === '';
+  const canSave = !saving && (currentValid || (parts.length > 0 && currentEmpty));
+  const canSplit = !editing && !saving && currentValid;
+
+  const currentInput = useCallback(
+    (): TransactionInput => ({
+      type,
+      amount: amount ?? 0,
+      accountId: accountId ?? -1,
+      toAccountId: isTransfer ? toAccountId : null,
+      categoryId: isTransfer ? null : categoryId,
+      date,
+      note,
+    }),
+    [type, amount, accountId, isTransfer, toAccountId, categoryId, date, note],
+  );
+
+  /** Puts the current entry aside as one part and starts the next (same type, account and date). */
+  const split = () => {
+    if (!canSplit) return;
+    setParts((p) => [...p, currentInput()]);
+    setExpr('');
+    setCategoryId(null);
+    setNote('');
+    vibrate();
+  };
 
   const save = useCallback(async () => {
-    if (!canSave || amount === null || accountId === null) return;
+    if (!canSave) return;
     setSaving(true);
     try {
-      const id = await saveTransaction(
-        {
-          type,
-          amount,
-          accountId,
-          toAccountId: isTransfer ? toAccountId : null,
-          categoryId: isTransfer ? null : categoryId,
-          date,
-          note,
-        },
-        editing?.id,
-      );
+      if (parts.length > 0) {
+        const all = currentEmpty ? parts : [...parts, currentInput()];
+        const ids = await saveTransactions(all);
+        vibrate();
+        onDone();
+        const total = all.reduce((s, p) => s + p.amount, 0);
+        toast(`Saved ${formatMAD(total)} · ${all.length} parts`, {
+          label: 'Undo',
+          onClick: () => void (async () => {
+            for (const id of ids) await deleteTransaction(id);
+          })(),
+        });
+        return;
+      }
+      const input = currentInput();
+      const id = await saveTransaction(input, editing?.id);
       vibrate();
       onDone();
       const what = isTransfer ? 'Transfer' : (categories.byId.get(categoryId ?? -1)?.name ?? '');
       if (editing) {
         toast('Transaction updated');
       } else {
-        toast(`Saved ${formatMAD(amount)} · ${what}`, {
+        toast(`Saved ${formatMAD(input.amount)} · ${what}`, {
           label: 'Undo',
           onClick: () => void deleteTransaction(id),
         });
@@ -165,7 +278,7 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
       toastError(errorMessage(err));
       setSaving(false);
     }
-  }, [canSave, amount, accountId, type, isTransfer, toAccountId, categoryId, date, note, editing, onDone, categories]);
+  }, [canSave, parts, currentEmpty, currentInput, isTransfer, categoryId, editing, onDone, categories]);
 
   const remove = async () => {
     if (!editing) return;
@@ -212,6 +325,19 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
     <div className="flex min-h-0 flex-1 flex-col gap-[clamp(0.5rem,1.8dvh,1rem)] pt-3">
       <div className="flex shrink-0 items-center gap-2">
         <SegmentedControl label="Transaction type" options={TYPE_OPTIONS} value={type} onChange={changeType} className="flex-1" />
+        {!editing && (
+          <button
+            type="button"
+            onClick={split}
+            disabled={!canSplit}
+            aria-label="Split: keep this part and add another"
+            title="Split: keep this part and add another"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-semibold text-accent transition hover:bg-surface-2 disabled:text-muted disabled:opacity-50"
+          >
+            <Split size={18} aria-hidden />
+            Split
+          </button>
+        )}
         {editing && (
           <IconButton label="Delete transaction" onClick={remove} className="text-expense hover:text-expense">
             <Trash2 size={20} />
@@ -221,6 +347,44 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
           <X size={20} />
         </IconButton>
       </div>
+
+      {/* Split parts already entered */}
+      {parts.length > 0 && (
+        <div className="flex shrink-0 items-center gap-2">
+          <ul aria-label="Parts" className="no-scrollbar -mx-0.5 flex min-w-0 flex-1 gap-2 overflow-x-auto p-0.5">
+            {parts.map((p, i) => {
+              const cat = p.categoryId !== null ? categories.byId.get(p.categoryId) : undefined;
+              const label = cat ? cat.name : `→ ${accounts.byId.get(p.toAccountId ?? -1)?.name ?? '?'}`;
+              return (
+                <li key={i} className="flex shrink-0 items-center rounded-full border border-border bg-surface-2 py-0.5 pl-1 text-sm">
+                  {cat ? (
+                    <CategoryIcon icon={cat.icon} color={cat.color} size={24} />
+                  ) : (
+                    <ArrowRightLeft size={16} aria-hidden className="mx-1 text-accent" />
+                  )}
+                  <span className="tabular ml-1.5 whitespace-nowrap font-medium">{formatMAD(p.amount, { decimals: p.amount % 100 !== 0 })}</span>
+                  <span className="ml-1 whitespace-nowrap text-muted">{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setParts((all) => all.filter((_, j) => j !== i))}
+                    aria-label={`Remove part ${formatMAD(p.amount)} ${label}`}
+                    className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full text-muted hover:text-text"
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="tabular shrink-0 text-sm text-muted">
+            Total{' '}
+            {(() => {
+              const total = parts.reduce((s, p) => s + p.amount, 0) + (currentValid ? amount! : 0);
+              return <span className="font-semibold text-text">{formatMAD(total, { decimals: total % 100 !== 0 })}</span>;
+            })()}
+          </p>
+        </div>
+      )}
 
       {/* Amount display */}
       <div className="shrink-0 text-center" aria-live="polite" aria-atomic>
@@ -275,6 +439,50 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
         </div>
       )}
 
+      {/* Shortcuts: frequent notes (fill note + category, not the amount) and transfer pairs; autocomplete while typing a note */}
+      {shortcuts.length > 0 && (
+        <div
+          role="group"
+          aria-label={typedQuery.trim() ? 'Matching notes' : 'Shortcuts'}
+          className="no-scrollbar -mx-0.5 flex shrink-0 gap-2 overflow-x-auto p-0.5"
+        >
+          {shortcuts.map((s) => {
+            const selected = isSelected(s);
+            const cat = s.kind === 'note' ? categories.byId.get(s.categoryId) : undefined;
+            const from = s.kind === 'transfer' ? accounts.byId.get(s.fromId) : undefined;
+            const to = s.kind === 'transfer' ? accounts.byId.get(s.toId) : undefined;
+            const text = s.kind === 'note' ? s.note : from && to ? transferLabel(from, to) : '';
+            const sub = s.kind === 'note' ? cat?.name : from && to && text === 'Withdraw cash' ? `${from.name} → ${to.name}` : undefined;
+            return (
+              <button
+                key={s.kind === 'note' ? `n${s.categoryId}|${foldNote(s.note)}` : `t${s.fromId}>${s.toId}`}
+                type="button"
+                aria-pressed={selected}
+                aria-label={sub ? `${text}, ${sub}` : text}
+                // Keep the note field focused until the click lands, or the list would change under the finger.
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => applyShortcut(s)}
+                className={`inline-flex min-h-11 max-w-[14rem] shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-left text-sm transition ${
+                  selected ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-dashed border-border bg-surface hover:bg-surface-2'
+                }`}
+              >
+                {cat ? (
+                  <CategoryIcon icon={cat.icon} color={cat.color} size={28} />
+                ) : (
+                  <span aria-hidden className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+                    <Banknote size={16} />
+                  </span>
+                )}
+                <span aria-hidden className="min-w-0 leading-tight">
+                  <span className="block truncate font-medium">{text}</span>
+                  {sub && <span className="block truncate text-xs text-muted">{sub}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Date, account and note */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <DateChip label="Date" icon={CalendarDays} value={date} onChange={setDate} />
@@ -287,6 +495,9 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
             value={note}
             maxLength={200}
             onChange={(e) => setNote(e.target.value)}
+            onFocus={() => setNoteFocused(true)}
+            onBlur={() => setNoteFocused(false)}
+            autoComplete="off"
             placeholder="Add a note"
             enterKeyHint="done"
             onKeyDown={(e) => {
@@ -298,7 +509,7 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
       </div>
 
       <div className="shrink-0">
-        <Keypad onKey={press} onSave={() => void save()} saveLabel={editing ? 'Update' : 'Save'} saveDisabled={!canSave} />
+        <Keypad onKey={press} onSave={() => void save()} saveLabel={editing ? 'Update' : parts.length > 0 ? 'Save all' : 'Save'} saveDisabled={!canSave} />
       </div>
     </div>
   );

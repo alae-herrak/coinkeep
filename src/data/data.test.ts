@@ -3,7 +3,7 @@ import { db, getSetting } from '../db/db';
 import { createAccount, deleteAccount, moveAccount, setAccountArchived } from './accounts';
 import { createCategory, deleteCategory, updateCategory } from './categories';
 import { completeOnboarding } from './onboarding';
-import { deleteTransaction, restoreTransaction, saveTransaction, type TransactionInput } from './transactions';
+import { deleteTransaction, restoreTransaction, saveTransaction, saveTransactions, type TransactionInput } from './transactions';
 import { UserFacingError } from './errors';
 
 beforeEach(async () => {
@@ -32,6 +32,30 @@ async function setup() {
   });
   return { cash, bank, groceries, salary, expense };
 }
+
+describe('saveTransactions (split payment)', () => {
+  it('saves every part in entry order and remembers the last account', async () => {
+    const { cash, bank, expense } = await setup();
+    const other = await categoryId('Other');
+    const ids = await saveTransactions([
+      expense({ amount: 1500 }),
+      expense({ amount: 500, categoryId: other, accountId: bank }),
+    ]);
+    const saved = await db.transactions.bulkGet(ids);
+    expect(saved.map((t) => [t!.amount, t!.categoryId, t!.accountId])).toEqual([
+      [1500, (await db.transactions.get(ids[0]!))!.categoryId, cash],
+      [500, other, bank],
+    ]);
+    expect(saved[0]!.createdAt).toBeLessThan(saved[1]!.createdAt);
+    expect(await getSetting('lastUsedAccountId')).toBe(bank);
+  });
+
+  it('saves nothing when any part is invalid', async () => {
+    const { expense } = await setup();
+    await expect(saveTransactions([expense(), expense({ categoryId: null })])).rejects.toBeInstanceOf(UserFacingError);
+    expect(await db.transactions.count()).toBe(0);
+  });
+});
 
 describe('saveTransaction', () => {
   it('creates and updates transactions and remembers the account', async () => {

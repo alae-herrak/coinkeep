@@ -2,7 +2,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo } from 'react';
 import { db } from '../db/db';
-import type { Account, Category, CategoryKind, SettingKey, SettingsMap } from '../db/types';
+import type { Account, Category, CategoryKind, SettingKey, SettingsMap, Transaction } from '../db/types';
 import { computeAccountBalances } from '../domain/balances';
 
 function bySortOrder<T extends { sortOrder: number; id: number }>(a: T, b: T) {
@@ -67,6 +67,11 @@ export function useCategoryUsage(): Map<number, number> | undefined {
     }
     return counts;
   });
+}
+
+/** The latest transactions by entry time: what Quick Add's shortcuts are learned from. */
+export function useRecentTransactions(limit = 500): Transaction[] | undefined {
+  return useLiveQuery(() => db.transactions.orderBy('createdAt').reverse().limit(limit).toArray(), [limit]);
 }
 
 export function useSetting<K extends SettingKey>(key: K): SettingsMap[K] | undefined {

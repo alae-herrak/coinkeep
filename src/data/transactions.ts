@@ -59,6 +59,26 @@ export async function saveTransaction(input: TransactionInput, id?: number): Pro
   return savedId;
 }
 
+/**
+ * Creates several transactions at once (a split payment): all are validated
+ * first, then saved in one go, so either every part lands or none does.
+ * Returns their ids in order.
+ */
+export async function saveTransactions(inputs: TransactionInput[]): Promise<number[]> {
+  const clean = inputs.map(normalize);
+  for (const input of clean) await validateTransaction(input);
+  if (clean.length === 0) return [];
+
+  return db.transaction('rw', db.transactions, db.settings, async () => {
+    const now = Date.now();
+    // createdAt keeps the parts in the order they were entered within the day.
+    const ids: number[] = [];
+    for (const [i, input] of clean.entries()) ids.push(await db.transactions.add({ ...input, createdAt: now + i }));
+    await setSetting('lastUsedAccountId', clean[clean.length - 1]!.accountId);
+    return ids;
+  });
+}
+
 /** Everything removed by a delete, so it can be put back exactly (Undo). */
 export interface DeletedTransaction {
   transaction: Transaction;
