@@ -45,8 +45,8 @@ interface Drag {
 }
 
 /**
- * Home's top card: "Safe to spend" first, then one card per account. Swipe
- * sideways or tap the dots below.
+ * Home's top card: one card per account (what you actually have, in your
+ * account order), then "Safe to spend" last. Swipe sideways or tap the dots below.
  *
  * The strip of cards moves with a transform written straight to the DOM (no
  * React render per frame). A swipe moves exactly one card: past 20% of the
@@ -209,21 +209,21 @@ export function BalanceCarousel({ safe, accounts, balances }: BalanceCarouselPro
     <section aria-roledescription="carousel" aria-label="Balances">
       <div ref={viewport} className="-mx-4 -my-2 touch-pan-y overflow-hidden px-4 py-2">
         <div ref={track} className="flex items-start gap-4 will-change-transform">
-          <div data-slide={0} role="group" aria-roledescription="slide" aria-label={`1 of ${count}: Safe to spend`} className="w-full shrink-0">
-            <SafeToSpendCard data={safe} />
-          </div>
           {accounts.map((a, i) => (
             <div
               key={a.id}
-              data-slide={i + 1}
+              data-slide={i}
               role="group"
               aria-roledescription="slide"
-              aria-label={`${i + 2} of ${count}: ${a.name}`}
+              aria-label={`${i + 1} of ${count}: ${a.name}`}
               className="w-full shrink-0"
             >
               <AccountCard account={a} balance={balances.get(a.id) ?? 0} />
             </div>
           ))}
+          <div data-slide={accounts.length} role="group" aria-roledescription="slide" aria-label={`${count} of ${count}: Safe to spend`} className="w-full shrink-0">
+            <SafeToSpendCard data={safe} />
+          </div>
         </div>
       </div>
 
@@ -233,7 +233,7 @@ export function BalanceCarousel({ safe, accounts, balances }: BalanceCarouselPro
             key={i}
             type="button"
             onClick={() => settle(i)}
-            aria-label={i === 0 ? 'Show safe to spend' : `Show ${accounts[i - 1]!.name}`}
+            aria-label={i < accounts.length ? `Show ${accounts[i]!.name}` : 'Show safe to spend'}
             aria-current={i === current ? 'true' : undefined}
             className="flex h-6 min-w-6 items-center justify-center px-1"
           >

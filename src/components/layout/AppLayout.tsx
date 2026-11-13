@@ -39,6 +39,11 @@ export function AppLayout() {
   const showFab = FAB_PATHS.has(pathname);
   // The + button would cover the amounts at the end of rows: get out of the way while reading down.
   const fabHidden = useHiddenWhileScrollingDown(pathname);
+  const fabVisible = showFab && !fabHidden;
+  useEffect(() => {
+    useUI.getState().setFabVisible(fabVisible);
+    return () => useUI.getState().setFabVisible(false);
+  }, [fabVisible]);
 
   // Leaving a screen (e.g. Android back) shouldn't leave the sheet floating over the next one.
   // Only close a sheet that belonged to the screen being left: a deep link opens it for the

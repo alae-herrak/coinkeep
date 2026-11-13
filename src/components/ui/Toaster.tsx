@@ -1,15 +1,24 @@
 import { useUI } from '../../store/ui';
 
-/** Renders the current toast just above the tab bar. Announced politely to screen readers. */
+/**
+ * Renders the current toast just above the tab bar. Announced politely to screen readers.
+ * While the + button is showing, the toast stops short of it so adding the next
+ * transaction never means waiting for the toast to go away.
+ */
 export function Toaster() {
   const toasts = useUI((s) => s.toasts);
+  const fabVisible = useUI((s) => s.fabVisible);
   const dismiss = useUI((s) => s.dismissToast);
 
   return (
     <div
       aria-live="polite"
       className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-4"
-      style={{ bottom: 'calc(var(--spacing-tabbar) + env(safe-area-inset-bottom) + 0.75rem)' }}
+      style={{
+        bottom: 'calc(var(--spacing-tabbar) + env(safe-area-inset-bottom) + 1rem)',
+        // + button: 3.5rem wide, inset max(1rem, safe area) from the right; keep 0.75rem clear of it.
+        paddingRight: fabVisible ? 'calc(max(1rem, env(safe-area-inset-right)) + 4.25rem)' : undefined,
+      }}
     >
       {toasts.map((t) => (
         <div

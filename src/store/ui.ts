@@ -48,6 +48,10 @@ interface UIState {
 
   confirmRequest: ConfirmRequest | null;
   setConfirmRequest: (req: ConfirmRequest | null) => void;
+
+  /** The + button is on screen; toasts leave room for it instead of covering it. */
+  fabVisible: boolean;
+  setFabVisible: (visible: boolean) => void;
 }
 
 /** Current hash route without the query, e.g. "/transactions". */
@@ -65,6 +69,9 @@ export const useUI = create<UIState>((set, get) => ({
   openEdit: (id) =>
     set((s) => ({ quickAdd: { open: true, session: s.quickAdd.session + 1, initialType: 'expense', editId: id, openedOn: currentRoute() } })),
   closeQuickAdd: () => set((s) => ({ quickAdd: { ...s.quickAdd, open: false } })),
+
+  fabVisible: false,
+  setFabVisible: (visible) => set({ fabVisible: visible }),
 
   toasts: [],
   showToast: (toast, durationMs = 5000) => {
