@@ -27,6 +27,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { DateChip, SelectChip } from '../ui/Chips';
 import { CategoryIcon } from '../ui/CategoryIcon';
 import { Keypad } from './Keypad';
+import { confirmDeleteTransaction } from '../transactions/confirmDelete';
 
 const TYPE_OPTIONS = [
   { value: 'expense' as const, label: 'Expense' },
@@ -282,6 +283,11 @@ function QuickAddForm({ initialType, editing, accounts, categories, lastUsedAcco
 
   const remove = async () => {
     if (!editing) return;
+    const ok = await confirmDeleteTransaction(editing, {
+      accountName: (id) => accounts.byId.get(id)?.name,
+      categoryName: (id) => categories.byId.get(id)?.name,
+    });
+    if (!ok) return;
     const deleted = await deleteTransaction(editing.id);
     onDone();
     if (deleted) {

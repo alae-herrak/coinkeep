@@ -45,7 +45,7 @@ export function ConfirmHost() {
             {request.title}
           </h2>
           {request.message && (
-            <p id={descId} className="mt-2 text-sm text-muted">
+            <p id={descId} className="mt-2 whitespace-pre-line text-sm text-muted">
               {request.message}
             </p>
           )}

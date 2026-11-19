@@ -82,14 +82,22 @@ export function GoalDetailScreen() {
     if (deleted) toast('Goal deleted', { label: 'Undo', onClick: () => void restoreGoal(deleted) });
   };
 
-  const onDeleteMovement = async (m: SavingsMovement) => {
+  const onDeleteMovement = async (m: SavingsMovement): Promise<boolean> => {
     // Removing an allocation must not leave the goal below zero (money already withdrawn).
     if (m.amount > 0 && goal.held - m.amount < 0) {
       toastError('Remove the later withdrawal first — the goal can’t go below zero.');
-      return;
+      return false;
     }
+    const ok = await confirm({
+      title: 'Remove this entry?',
+      message: `${formatMAD(m.amount, { sign: 'always' })} · ${formatDayLabel(m.date)}${m.note.trim() ? `\n“${m.note.trim()}”` : ''}`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return false;
     const deleted = await deleteMovement(m.id);
     if (deleted) toast('Entry removed', { label: 'Undo', onClick: () => void restoreMovement(deleted) });
+    return true;
   };
 
   return (
@@ -153,7 +161,7 @@ export function GoalDetailScreen() {
           <ul className="overflow-hidden rounded-card bg-surface shadow-sm">
             {movements.map((m) => (
               <li key={m.id} className="border-b border-border last:border-b-0">
-                <SwipeToDelete onDelete={() => void onDeleteMovement(m)}>
+                <SwipeToDelete onDelete={() => onDeleteMovement(m)}>
                   <div className="flex min-h-14 items-center gap-3 bg-surface px-4 py-2.5">
                     <span
                       aria-hidden

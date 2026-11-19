@@ -2,7 +2,8 @@ import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 
 interface SwipeToDeleteProps {
-  onDelete: () => void;
+  /** Return (or resolve to) false when the delete was cancelled, and the row slides back. */
+  onDelete: () => boolean | void | Promise<boolean | void>;
   children: ReactNode;
 }
 
@@ -12,7 +13,8 @@ const DELETE_FRACTION = 0.4;
 /**
  * Swipe a row left to delete it. Vertical drags are left to the browser for
  * scrolling (touch-action: pan-y). The parent should offer Undo, and a
- * non-gesture way to delete for keyboard/screen-reader users.
+ * non-gesture way to delete for keyboard/screen-reader users. While a
+ * confirmation is open the row stays swiped away; declining slides it back.
  */
 export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -55,7 +57,14 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
     if (-dx > width * DELETE_FRACTION && e.type === 'pointerup') {
       setRemoving(true);
       setDx(-width);
-      setTimeout(onDelete, 180);
+      setTimeout(() => {
+        void Promise.resolve(onDelete()).then((done) => {
+          if (done === false) {
+            setRemoving(false);
+            setDx(0);
+          }
+        });
+      }, 180);
     } else {
       setDx(0);
     }

@@ -15,6 +15,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button, IconButton } from '../components/ui/Button';
 import { SwipeToDelete } from '../components/ui/SwipeToDelete';
+import { confirmDeleteTransaction } from '../components/transactions/confirmDelete';
 import { TransactionRow } from '../components/transactions/TransactionRow';
 import { TransactionFiltersSheet } from '../components/transactions/TransactionFiltersSheet';
 
@@ -78,11 +79,18 @@ export function TransactionsScreen() {
     setVisibleDays(PAGE_DAYS);
   };
 
-  const remove = async (t: Transaction) => {
+  const remove = async (t: Transaction): Promise<boolean> => {
+    if (!accounts || !categories) return false;
+    const ok = await confirmDeleteTransaction(t, {
+      accountName: (id) => accounts.byId.get(id)?.name,
+      categoryName: (id) => categories.byId.get(id)?.name,
+    });
+    if (!ok) return false;
     const deleted = await deleteTransaction(t.id);
-    if (!deleted) return;
+    if (!deleted) return true;
     vibrate();
     toast('Transaction deleted', { label: 'Undo', onClick: () => void restoreTransaction(deleted) });
+    return true;
   };
 
   if (!accounts || !categories || !groups || !all) {
@@ -205,7 +213,7 @@ export function TransactionsScreen() {
                   <ul className="overflow-hidden rounded-card bg-surface shadow-sm">
                     {g.items.map((t) => (
                       <li key={t.id} className="border-b border-border last:border-b-0">
-                        <SwipeToDelete onDelete={() => void remove(t)}>
+                        <SwipeToDelete onDelete={() => remove(t)}>
                           <TransactionRow
                             transaction={t}
                             category={t.categoryId !== null ? categories.byId.get(t.categoryId) : undefined}
