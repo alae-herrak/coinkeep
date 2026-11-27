@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
-import { CalendarClock, ChevronRight, Gauge, Settings } from 'lucide-react';
+import { CalendarClock, ChevronRight, Gauge, HandCoins, Settings } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 
 const MORE_LINKS = [
   { to: '/budgets', label: 'Budgets', icon: Gauge },
   { to: '/bills', label: 'Bills', icon: CalendarClock },
+  { to: '/debts', label: 'Debts', icon: HandCoins },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

@@ -16,6 +16,8 @@ import { db, setSetting } from '../db/db';
 import type {
   Account,
   Category,
+  Debt,
+  DebtPayment,
   PaycheckTemplate,
   RecurringBill,
   SavingsGoal,
@@ -38,6 +40,9 @@ export interface BackupData {
   savingsMovements: SavingsMovement[];
   recurringBills: RecurringBill[];
   paycheckTemplates: PaycheckTemplate[];
+  /** Added with schema v2; older backups have none. */
+  debts: Debt[];
+  debtPayments: DebtPayment[];
   settings: SettingRow[];
 }
 
@@ -53,7 +58,7 @@ export interface Backup {
 const PORTABLE_SETTINGS: SettingKey[] = ['lastUsedAccountId', 'installedAt'];
 
 export async function createBackup(now: Date = new Date()): Promise<Backup> {
-  return db.transaction('r', [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.settings], async () => ({
+  return db.transaction('r', [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.debts, db.debtPayments, db.settings], async () => ({
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
     schemaVersion: db.verno,
@@ -66,6 +71,8 @@ export async function createBackup(now: Date = new Date()): Promise<Backup> {
       savingsMovements: await db.savingsMovements.toArray(),
       recurringBills: await db.recurringBills.toArray(),
       paycheckTemplates: await db.paycheckTemplates.toArray(),
+      debts: await db.debts.toArray(),
+      debtPayments: await db.debtPayments.toArray(),
       settings: (await db.settings.toArray()).filter((s) => PORTABLE_SETTINGS.includes(s.key)),
     },
   }));
@@ -179,9 +186,27 @@ const SPECS: Record<Exclude<keyof BackupData, 'settings'>, FieldSpec> = {
     accountId: [isId, 'an account id'],
     allocations: [Array.isArray, 'a list'],
   },
+  debts: {
+    id: [isId, 'a positive id'],
+    name: [isStr, 'text'],
+    amount: POSITIVE_MONEY,
+    categoryId: [isId, 'a category id'],
+    date: [isDate, 'a date like 2026-11-01'],
+    note: [isStr, 'text'],
+  },
+  debtPayments: {
+    id: [isId, 'a positive id'],
+    debtId: [isId, 'a debt id'],
+    transactionId: [isId, 'a transaction id'],
+    feeTransactionId: [nullable(isId), 'null or a transaction id'],
+  },
 };
 
+/** Tables added after the first release: a backup made before them simply has none. */
+const OPTIONAL_TABLES = new Set<keyof typeof SPECS>(['debts', 'debtPayments']);
+
 function checkRows(c: Checker, table: keyof typeof SPECS, rows: unknown): Rec[] {
+  if (rows === undefined && OPTIONAL_TABLES.has(table)) return [];
   if (!Array.isArray(rows)) {
     c.fail(`“${table}” is missing or isn’t a list.`);
     return [];
@@ -243,6 +268,8 @@ export function validateBackup(text: string): ValidationResult {
   const movements = checkRows(c, 'savingsMovements', d.savingsMovements);
   const bills = checkRows(c, 'recurringBills', d.recurringBills);
   const templates = checkRows(c, 'paycheckTemplates', d.paycheckTemplates);
+  const debts = checkRows(c, 'debts', d.debts);
+  const debtPayments = checkRows(c, 'debtPayments', d.debtPayments);
   const settings = checkSettings(c, d.settings);
   if (c.errors.length) return { ok: false, errors: c.errors };
 
@@ -285,6 +312,16 @@ export function validateBackup(text: string): ValidationResult {
       if (!ok) c.fail(`paycheckTemplates[${i}].allocations[${j}] is invalid.`);
     });
   });
+  const debtIds = new Set(debts.map((x) => x.id as number));
+  const expenseIds = new Set(transactions.filter((t) => t.type === 'expense').map((t) => t.id as number));
+  debts.forEach((x, i) => {
+    if (categoryKind.get(x.categoryId as number) !== 'expense') c.fail(`debts[${i}] needs an expense category.`);
+  });
+  debtPayments.forEach((p, i) => {
+    if (!debtIds.has(p.debtId as number)) c.fail(`debtPayments[${i}] belongs to a debt that isn’t in the backup.`);
+    if (!expenseIds.has(p.transactionId as number)) c.fail(`debtPayments[${i}] isn’t linked to an expense in the backup.`);
+    if (p.feeTransactionId !== null && !expenseIds.has(p.feeTransactionId as number)) c.fail(`debtPayments[${i}] has a fee that isn’t an expense in the backup.`);
+  });
   if (c.errors.length) return { ok: false, errors: c.errors };
 
   return {
@@ -302,6 +339,8 @@ export function validateBackup(text: string): ValidationResult {
         savingsMovements: movements as unknown as SavingsMovement[],
         recurringBills: bills as unknown as RecurringBill[],
         paycheckTemplates: templates as unknown as PaycheckTemplate[],
+        debts: debts as unknown as Debt[],
+        debtPayments: debtPayments as unknown as DebtPayment[],
         settings,
       },
     },
@@ -314,6 +353,7 @@ export function summarizeBackup(b: Backup) {
     transactions: b.data.transactions.length,
     goals: b.data.savingsGoals.length,
     bills: b.data.recurringBills.length,
+    debts: b.data.debts.length,
     categories: b.data.categories.length,
   };
 }
@@ -325,7 +365,7 @@ export function summarizeBackup(b: Backup) {
  * theme, storage status, reminders) are kept. Marks onboarding as done.
  */
 export async function restoreBackup(backup: Backup): Promise<void> {
-  const tables = [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.settings];
+  const tables = [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.debts, db.debtPayments, db.settings];
   await db.transaction('rw', tables, async () => {
     await Promise.all([
       db.accounts.clear(),
@@ -335,6 +375,8 @@ export async function restoreBackup(backup: Backup): Promise<void> {
       db.savingsMovements.clear(),
       db.recurringBills.clear(),
       db.paycheckTemplates.clear(),
+      db.debts.clear(),
+      db.debtPayments.clear(),
     ]);
     const d = backup.data;
     await db.accounts.bulkAdd(d.accounts);
@@ -344,6 +386,8 @@ export async function restoreBackup(backup: Backup): Promise<void> {
     await db.savingsMovements.bulkAdd(d.savingsMovements);
     await db.recurringBills.bulkAdd(d.recurringBills);
     await db.paycheckTemplates.bulkAdd(d.paycheckTemplates);
+    await db.debts.bulkAdd(d.debts);
+    await db.debtPayments.bulkAdd(d.debtPayments);
 
     for (const key of PORTABLE_SETTINGS) await db.settings.delete(key);
     if (d.settings.length) await db.settings.bulkPut(d.settings);
@@ -356,7 +400,7 @@ export async function restoreBackup(backup: Backup): Promise<void> {
 
 /** Deletes all money data but keeps device settings; the app returns to onboarding. */
 export async function eraseAllData(): Promise<void> {
-  const tables = [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.settings];
+  const tables = [db.accounts, db.categories, db.transactions, db.savingsGoals, db.savingsMovements, db.recurringBills, db.paycheckTemplates, db.debts, db.debtPayments, db.settings];
   await db.transaction('rw', tables, async () => {
     await Promise.all(tables.filter((t) => t !== db.settings).map((t) => t.clear()));
     // Start over with the default categories, like a fresh install.

@@ -249,6 +249,8 @@ function RestoreSummary({
         <dd className="text-right font-medium">{s.goals}</dd>
         <dt className="text-muted">Bills</dt>
         <dd className="text-right font-medium">{s.bills}</dd>
+        <dt className="text-muted">Debts</dt>
+        <dd className="text-right font-medium">{s.debts}</dd>
       </dl>
       <p className="flex gap-2 rounded-xl bg-warn-soft p-3 text-sm">
         <AlertTriangle size={18} aria-hidden className="mt-0.5 shrink-0 text-warn" />

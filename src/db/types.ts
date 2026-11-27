@@ -92,6 +92,33 @@ export interface RecurringBill {
   active: boolean;
 }
 
+/**
+ * Money you owe, kept in a backlog until you pay it off (all at once or in
+ * parts). Logging a debt moves no money; each payment is an expense.
+ */
+export interface Debt {
+  id: number;
+  /** Who or what it's owed to, e.g. "Phone (Mehdi)". */
+  name: string;
+  /** Total owed, in centimes. */
+  amount: number;
+  /** Expense category used for its payments. */
+  categoryId: number;
+  /** When the debt was taken on. */
+  date: ISODate;
+  note: string;
+}
+
+/** One payment towards a debt. Amounts live on the linked transactions, so editing them there stays in sync. */
+export interface DebtPayment {
+  id: number;
+  debtId: number;
+  /** The expense that paid the debt down. */
+  transactionId: number;
+  /** A separate expense for the fee paid with it (e.g. a bank transfer fee), if any. */
+  feeTransactionId: number | null;
+}
+
 export type AllocationMode = 'percent' | 'fixed';
 
 export interface Allocation {

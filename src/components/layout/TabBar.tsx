@@ -16,7 +16,7 @@ const TABS: Tab[] = [
   { to: '/transactions', label: 'Transactions', icon: ReceiptText },
   { to: '/insights', label: 'Insights', icon: ChartPie },
   { to: '/goals', label: 'Goals', icon: PiggyBank },
-  { to: '/more', label: 'More', icon: LayoutGrid, alsoActiveOn: ['/budgets', '/bills', '/settings'] },
+  { to: '/more', label: 'More', icon: LayoutGrid, alsoActiveOn: ['/budgets', '/bills', '/debts', '/settings'] },
 ];
 
 export function TabBar() {

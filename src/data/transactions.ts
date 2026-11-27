@@ -1,5 +1,5 @@
 import { db, setSetting } from '../db/db';
-import type { SavingsMovement, Transaction } from '../db/types';
+import type { DebtPayment, SavingsMovement, Transaction } from '../db/types';
 import { isISODate } from '../lib/dates';
 import { UserFacingError } from './errors';
 
@@ -83,26 +83,47 @@ export async function saveTransactions(inputs: TransactionInput[]): Promise<numb
 export interface DeletedTransaction {
   transaction: Transaction;
   movements: SavingsMovement[];
+  /** Debt payments as they were before (removed, or with the fee unlinked). */
+  debtPayments?: DebtPayment[];
+  /** A debt payment's fee, deleted along with the payment. */
+  extraTransactions?: Transaction[];
 }
 
 /**
- * Deletes a transaction together with any savings movements created from it
- * (paycheck allocations), so goals never keep money that no longer arrived.
+ * Deletes a transaction together with whatever was built on it: savings
+ * movements from a paycheck split, or the debt payment it made (with its fee),
+ * so goals and debts never count money that no longer moved.
  */
 export async function deleteTransaction(id: number): Promise<DeletedTransaction | null> {
-  return db.transaction('rw', db.transactions, db.savingsMovements, async () => {
+  return db.transaction('rw', [db.transactions, db.savingsMovements, db.debtPayments], async () => {
     const transaction = await db.transactions.get(id);
     if (!transaction) return null;
     const movements = await db.savingsMovements.where('linkedTransactionId').equals(id).toArray();
     await db.savingsMovements.bulkDelete(movements.map((m) => m.id));
+
+    const paid = await db.debtPayments.where('transactionId').equals(id).toArray();
+    const feeOf = await db.debtPayments.where('feeTransactionId').equals(id).toArray();
+    const extraTransactions: Transaction[] = [];
+    for (const p of paid) {
+      if (p.feeTransactionId !== null) {
+        const fee = await db.transactions.get(p.feeTransactionId);
+        if (fee) extraTransactions.push(fee);
+        await db.transactions.delete(p.feeTransactionId);
+      }
+      await db.debtPayments.delete(p.id);
+    }
+    for (const p of feeOf) await db.debtPayments.update(p.id, { feeTransactionId: null });
+
     await db.transactions.delete(id);
-    return { transaction, movements };
+    return { transaction, movements, debtPayments: [...paid, ...feeOf], extraTransactions };
   });
 }
 
 export async function restoreTransaction(deleted: DeletedTransaction): Promise<void> {
-  await db.transaction('rw', db.transactions, db.savingsMovements, async () => {
+  await db.transaction('rw', [db.transactions, db.savingsMovements, db.debtPayments], async () => {
     await db.transactions.put(deleted.transaction);
+    if (deleted.extraTransactions?.length) await db.transactions.bulkPut(deleted.extraTransactions);
     if (deleted.movements.length) await db.savingsMovements.bulkPut(deleted.movements);
+    if (deleted.debtPayments?.length) await db.debtPayments.bulkPut(deleted.debtPayments);
   });
 }

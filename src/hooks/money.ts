@@ -2,9 +2,10 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
-import type { Category, RecurringBill, SavingsGoal } from '../db/types';
+import type { Category, Debt, DebtPayment, RecurringBill, SavingsGoal, Transaction } from '../db/types';
 import { computeAccountBalances, sumBalances } from '../domain/balances';
 import { budgetProgress, type BudgetProgress } from '../domain/budgets';
+import { debtStatuses, type DebtStatus } from '../domain/debts';
 import { heldByGoal } from '../domain/goals';
 import { computeSafeToSpend, type SafeToSpend } from '../domain/safeToSpend';
 import { endOfMonth, startOfMonth, todayISO } from '../lib/dates';
@@ -103,4 +104,43 @@ export function categoryBudgets(categories: readonly Category[], spentByCategory
 
 export function useBills(): RecurringBill[] | undefined {
   return useLiveQuery(() => db.recurringBills.toArray());
+}
+
+export interface DebtWithStatus extends Debt, DebtStatus {}
+
+export interface DebtsData {
+  /** Still owed, oldest first. */
+  open: DebtWithStatus[];
+  /** Paid off, most recent first. */
+  settled: DebtWithStatus[];
+  byId: Map<number, DebtWithStatus>;
+  /** Owed across all open debts. */
+  totalRemaining: number;
+  payments: DebtPayment[];
+  /** The transactions behind the payments (and fees), by id. */
+  transactionsById: Map<number, Transaction>;
+}
+
+export function useDebts(): DebtsData | undefined {
+  const raw = useLiveQuery(async () => {
+    const [debts, payments] = await Promise.all([db.debts.toArray(), db.debtPayments.toArray()]);
+    const ids = payments.flatMap((p) => (p.feeTransactionId === null ? [p.transactionId] : [p.transactionId, p.feeTransactionId]));
+    const transactions = (await db.transactions.bulkGet(ids)).filter((t): t is Transaction => t !== undefined);
+    return { debts, payments, transactions };
+  });
+  return useMemo(() => {
+    if (!raw) return undefined;
+    const statuses = debtStatuses(raw.debts, raw.payments, raw.transactions);
+    const all = raw.debts.map((d) => ({ ...d, ...statuses.get(d.id)! }));
+    const byDate = (a: DebtWithStatus, b: DebtWithStatus) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.id - b.id);
+    const open = all.filter((d) => !d.settled).sort(byDate);
+    return {
+      open,
+      settled: all.filter((d) => d.settled).sort((a, b) => byDate(b, a)),
+      byId: new Map(all.map((d) => [d.id, d])),
+      totalRemaining: open.reduce((s, d) => s + d.remaining, 0),
+      payments: raw.payments,
+      transactionsById: new Map(raw.transactions.map((t) => [t.id, t])),
+    };
+  }, [raw]);
 }

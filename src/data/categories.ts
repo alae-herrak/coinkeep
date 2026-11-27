@@ -54,17 +54,18 @@ export async function setCategoryArchived(id: number, archived: boolean): Promis
 }
 
 export async function categoryUsageCount(id: number): Promise<number> {
-  const [txs, bills] = await Promise.all([
+  const [txs, bills, debts] = await Promise.all([
     db.transactions.where('categoryId').equals(id).count(),
     db.recurringBills.where('categoryId').equals(id).count(),
+    db.debts.where('categoryId').equals(id).count(),
   ]);
-  return txs + bills;
+  return txs + bills + debts;
 }
 
 /** Only unused categories can be deleted; used ones should be archived so history keeps its labels. */
 export async function deleteCategory(id: number): Promise<void> {
   if ((await categoryUsageCount(id)) > 0) {
-    throw new UserFacingError('This category is used by transactions or bills. Archive it instead.');
+    throw new UserFacingError('This category is used by transactions, bills or debts. Archive it instead.');
   }
   await db.categories.delete(id);
 }

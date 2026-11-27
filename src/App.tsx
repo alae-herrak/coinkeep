@@ -14,6 +14,8 @@ import { SettingsScreen } from './screens/settings/SettingsScreen';
 import { MoreScreen } from './screens/MoreScreen';
 import { BudgetsScreen } from './screens/BudgetsScreen';
 import { BillsScreen } from './screens/BillsScreen';
+import { DebtsScreen } from './screens/DebtsScreen';
+import { DebtDetailScreen } from './screens/DebtDetailScreen';
 import { GoalsScreen } from './screens/GoalsScreen';
 import { GoalDetailScreen } from './screens/GoalDetailScreen';
 import { PaycheckScreen } from './screens/PaycheckScreen';
@@ -38,6 +40,8 @@ const router = createHashRouter([
       { path: 'more', element: <MoreScreen /> },
       { path: 'budgets', element: <BudgetsScreen /> },
       { path: 'bills', element: <BillsScreen /> },
+      { path: 'debts', element: <DebtsScreen /> },
+      { path: 'debts/:id', element: <DebtDetailScreen /> },
       { path: 'settings', element: <SettingsScreen /> },
       // Settings sub-screens are visited rarely: load on demand (still precached for offline use).
       { path: 'settings/accounts', lazy: () => import('./screens/settings/AccountsScreen').then((m) => ({ Component: m.AccountsScreen })) },

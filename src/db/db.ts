@@ -2,6 +2,8 @@ import Dexie, { type EntityTable, type Table } from 'dexie';
 import type {
   Account,
   Category,
+  Debt,
+  DebtPayment,
   PaycheckTemplate,
   RecurringBill,
   SavingsGoal,
@@ -23,6 +25,8 @@ export class CoinkeepDB extends Dexie {
   savingsMovements!: EntityTable<SavingsMovement, 'id'>;
   recurringBills!: EntityTable<RecurringBill, 'id'>;
   paycheckTemplates!: EntityTable<PaycheckTemplate, 'id'>;
+  debts!: EntityTable<Debt, 'id'>;
+  debtPayments!: EntityTable<DebtPayment, 'id'>;
   settings!: Table<SettingRow, SettingKey>;
 
   constructor(name = DB_NAME) {
@@ -41,6 +45,12 @@ export class CoinkeepDB extends Dexie {
       recurringBills: '++id, nextDueDate, categoryId, accountId',
       paycheckTemplates: '++id, accountId',
       settings: 'key',
+    });
+
+    // v2: debt backlog.
+    this.version(2).stores({
+      debts: '++id, categoryId',
+      debtPayments: '++id, debtId, transactionId, feeTransactionId',
     });
 
     this.on('populate', (tx) => seedDatabase(tx));
