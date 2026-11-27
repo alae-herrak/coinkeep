@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Coinkeep: a coin dropping into a pocket. Content stays inside the maskable safe zone (r = 205). -->
+  <rect width="512" height="512" rx="112" fill="#4f46e5"/>
+  <circle cx="256" cy="200" r="92" fill="#fbbf24"/>
+  <circle cx="256" cy="200" r="66" fill="none" stroke="#f59e0b" stroke-width="12"/>
+  <path d="M256 160v80" stroke="#f59e0b" stroke-width="12" stroke-linecap="round"/>
+  <path d="M128 236h256v82c0 52-42 86-92 86h-72c-50 0-92-34-92-86z" fill="#ffffff"/>
+  <path d="M152 260h208v58c0 38-31 62-68 62h-72c-37 0-68-24-68-62z" fill="none" stroke="#c7d2fe" stroke-width="6" stroke-dasharray="14 12" stroke-linecap="round"/>
+</svg>
